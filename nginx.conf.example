@@ -1,0 +1,69 @@
+# Nginx Reverse Proxy Configuration for tredence.ugandhar.in
+# Place in /etc/nginx/sites-available/tredence.ugandhar.in and link to /etc/nginx/sites-enabled/
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name tredence.ugandhar.in;
+
+    # Redirect all HTTP requests to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name tredence.ugandhar.in;
+
+    # SSL Certificate Paths (Managed via Certbot: certbot --nginx -d tredence.ugandhar.in)
+    ssl_certificate /etc/letsencrypt/live/tredence.ugandhar.in/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tredence.ugandhar.in/privkey.pem;
+
+    # Modern SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Security headers
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Maximum payload size for technical screenshots / multimodal uploads
+    client_max_body_size 25M;
+
+    # Static assets caching
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        expires 365d;
+        access_log off;
+    }
+
+    # Application Proxy and Real-time SSE Streaming
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        
+        # Headers for client IP forwarding & session cookies
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Disable buffering for Server-Sent Events (SSE) streaming responses
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+
+        # Keep alive timeouts for streaming responses
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}

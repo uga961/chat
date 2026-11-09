@@ -4,10 +4,10 @@ import { getSystemPrompt } from './prompts';
 
 /**
  * Returns the configured Gemini model name.
- * Defaults to 'gemini-3.8-flash' for ultra-low latency, sub-second response times.
+ * Defaults to 'gemini-3.8-flash' for top-tier reasoning, multimodal understanding, and complete technical answers.
  */
 export function getGeminiModelName(): string {
-  return process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
+  return process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash';
 }
 
 /**
@@ -48,15 +48,15 @@ function formatAttachments(attachments?: MessageAttachment[]) {
 
 /**
  * Prepares the conversation history window for Gemini.
- * Keeps the most recent 5 messages to minimize prompt token overhead
- * and drastically improve Time-To-First-Token (TTFT).
+ * Keeps the most recent 8 messages to provide deep context retention
+ * while avoiding excessive token bloat.
  */
 export function formatConversationContents(
   history: ChatMessage[],
   newMessage: string,
   newAttachments?: MessageAttachment[]
 ) {
-  const recentHistory = history.slice(-5);
+  const recentHistory = history.slice(-8);
 
   const contents: Array<{
     role: 'user' | 'model';
@@ -66,7 +66,6 @@ export function formatConversationContents(
   for (const msg of recentHistory) {
     const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
-    // Prior history images: only include recent if relevant
     if (msg.attachments && msg.attachments.length > 0) {
       for (const att of msg.attachments) {
         parts.push({
@@ -90,7 +89,7 @@ export function formatConversationContents(
     }
   }
 
-  // Append the current message
+  // Current user turn
   const currentParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
   const currentImageParts = formatAttachments(newAttachments);
   currentParts.push(...currentImageParts);
@@ -98,9 +97,8 @@ export function formatConversationContents(
   if (newMessage && newMessage.trim().length > 0) {
     currentParts.push({ text: newMessage });
   } else if (currentImageParts.length > 0) {
-    // If only image submitted without text
     currentParts.push({
-      text: 'Analyze the attached image(s). Identify the question, code, problem, or multiple-choice options, and provide the direct, simple, correct answer.',
+      text: 'Analyze the attached image(s) thoroughly. Extract the question, code, problem, tables, or multiple-choice options, and provide the complete, correct answer.',
     });
   }
 
@@ -120,7 +118,7 @@ export interface StreamOptions {
 }
 
 /**
- * Streams Gemini response chunks with low-latency settings and automatic retry.
+ * Streams Gemini response chunks with high-precision settings and automatic retry.
  */
 export async function* streamGeminiResponse({
   history = [],
@@ -133,20 +131,13 @@ export async function* streamGeminiResponse({
   const systemInstruction = getSystemPrompt(mode);
   const contents = formatConversationContents(history, message, attachments);
 
-  // Fast generation configuration
+  // Full generation configuration to ensure complete, thorough, un-truncated answers
   const config: Record<string, unknown> = {
     systemInstruction,
-    temperature: 0.1, // Low temperature for deterministic speed and accuracy
-    topP: 0.9,
-    maxOutputTokens: 2048, // Compact limit for fast token generation
+    temperature: 0.2, // Optimal temperature for technical precision, syntax accuracy, and correctness
+    topP: 0.95,
+    maxOutputTokens: 8192, // Generous limit to ensure code and explanations are never truncated
   };
-
-  // Disable thinking tokens on models like 2.5 to eliminate reasoning delay
-  if (modelName.includes('2.5') || modelName.includes('thinking')) {
-    config.thinkingConfig = {
-      thinkingBudget: 0,
-    };
-  }
 
   const maxRetries = 2;
   let attempt = 0;
@@ -168,11 +159,13 @@ export async function* streamGeminiResponse({
     } catch (error: unknown) {
       attempt++;
       const err = error as { status?: number; message?: string };
-      const isTransient = err.status === 429 || err.status === 503 || (err.message && /rate limit|overloaded|timeout/i.test(err.message));
+      const isTransient =
+        err.status === 429 ||
+        err.status === 503 ||
+        (err.message && /rate limit|overloaded|timeout|high demand|unavailable/i.test(err.message));
 
       if (attempt <= maxRetries && isTransient) {
-        // Fast backoff wait: 1s, 2s
-        const backoffMs = attempt * 1000;
+        const backoffMs = attempt * 2000;
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
@@ -183,6 +176,9 @@ export async function* streamGeminiResponse({
       }
       if (err.status === 429) {
         throw new Error('Gemini API rate limit exceeded. Please wait a moment before trying again.');
+      }
+      if (err.status === 503) {
+        throw new Error('Gemini model is currently experiencing high demand. Please retry in a few seconds.');
       }
       throw new Error(err.message || 'An unexpected error occurred while communicating with Gemini.');
     }

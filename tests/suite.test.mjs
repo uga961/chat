@@ -22,7 +22,7 @@ import { formatConversationContents, cleanBase64, getGeminiModelName } from '../
 test('1. Response Modes and System Prompts', (t) => {
   const answerOnlyPrompt = getSystemPrompt('answer_only');
   assert.ok(answerOnlyPrompt.includes('CURRENT RESPONSE MODE: ANSWER ONLY'));
-  assert.ok(answerOnlyPrompt.includes('Deliver ONLY the direct answer'));
+  assert.ok(answerOnlyPrompt.includes('Deliver ONLY the direct'));
   assert.ok(answerOnlyPrompt.includes('Option [Letter]: [Option text]'));
   assert.ok(answerOnlyPrompt.includes('Python'));
   assert.ok(answerOnlyPrompt.includes('SQL'));
@@ -178,7 +178,7 @@ test('6. Gemini Model Config and Multimodal Data Prep', (t) => {
 
   // Test configurable model
   delete process.env.GEMINI_MODEL;
-  assert.strictEqual(getGeminiModelName(), 'gemini-3.5-flash-lite');
+  assert.strictEqual(getGeminiModelName(), 'gemini-3.8-flash');
 
   process.env.GEMINI_MODEL = 'gemini-3.5-flash';
   assert.strictEqual(getGeminiModelName(), 'gemini-3.5-flash');

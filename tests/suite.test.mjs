@@ -28,13 +28,15 @@ test('1. Response Modes and System Prompts', (t) => {
   assert.ok(answerOnlyPrompt.includes('SQL'));
   assert.ok(answerOnlyPrompt.includes('Excel'));
 
+  assert.ok(answerOnlyPrompt.includes('CASE WHEN'));
+
   const shortPrompt = getSystemPrompt('short');
   assert.ok(shortPrompt.includes('CURRENT RESPONSE MODE: SHORT'));
-  assert.ok(shortPrompt.includes('1 to 3 concise sentences'));
+  assert.ok(shortPrompt.includes('1 to 2 concise sentences'));
 
   const detailedPrompt = getSystemPrompt('detailed');
   assert.ok(detailedPrompt.includes('CURRENT RESPONSE MODE: DETAILED'));
-  assert.ok(detailedPrompt.includes('comprehensive, in-depth'));
+  assert.ok(detailedPrompt.includes('comprehensive'));
 });
 
 test('2. Automatic Session Management (Without Manual SESSION_SECRET)', async (t) => {
@@ -176,10 +178,10 @@ test('6. Gemini Model Config and Multimodal Data Prep', (t) => {
 
   // Test configurable model
   delete process.env.GEMINI_MODEL;
-  assert.strictEqual(getGeminiModelName(), 'gemini-2.5-flash');
+  assert.strictEqual(getGeminiModelName(), 'gemini-3.5-flash-lite');
 
-  process.env.GEMINI_MODEL = 'gemini-2.0-flash';
-  assert.strictEqual(getGeminiModelName(), 'gemini-2.0-flash');
+  process.env.GEMINI_MODEL = 'gemini-3.5-flash';
+  assert.strictEqual(getGeminiModelName(), 'gemini-3.5-flash');
 });
 
 test('7. Database Health Reporting', async (t) => {

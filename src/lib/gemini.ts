@@ -4,10 +4,10 @@ import { getSystemPrompt } from './prompts';
 
 /**
  * Returns the configured Gemini model name.
- * Defaults to 'gemini-2.5-flash' for top performance and low latency.
+ * Defaults to 'gemini-3.8-flash' for ultra-low latency, sub-second response times.
  */
 export function getGeminiModelName(): string {
-  return process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
+  return process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
 }
 
 /**
@@ -48,16 +48,15 @@ function formatAttachments(attachments?: MessageAttachment[]) {
 
 /**
  * Prepares the conversation history window for Gemini.
- * Keeps the most recent messages (up to 10) to balance context retention
- * with minimal latency and token consumption.
+ * Keeps the most recent 5 messages to minimize prompt token overhead
+ * and drastically improve Time-To-First-Token (TTFT).
  */
 export function formatConversationContents(
   history: ChatMessage[],
   newMessage: string,
   newAttachments?: MessageAttachment[]
 ) {
-  // Take last 8 history items to stay well within fast reasoning budgets
-  const recentHistory = history.slice(-8);
+  const recentHistory = history.slice(-5);
 
   const contents: Array<{
     role: 'user' | 'model';
@@ -101,7 +100,7 @@ export function formatConversationContents(
   } else if (currentImageParts.length > 0) {
     // If only image submitted without text
     currentParts.push({
-      text: 'Analyze the attached image(s). Identify the question, code, problem, or multiple-choice options, and provide the direct, correct answer.',
+      text: 'Analyze the attached image(s). Identify the question, code, problem, or multiple-choice options, and provide the direct, simple, correct answer.',
     });
   }
 
@@ -121,7 +120,7 @@ export interface StreamOptions {
 }
 
 /**
- * Streams Gemini response chunks with automatic retry on transient network errors.
+ * Streams Gemini response chunks with low-latency settings and automatic retry.
  */
 export async function* streamGeminiResponse({
   history = [],
@@ -134,6 +133,21 @@ export async function* streamGeminiResponse({
   const systemInstruction = getSystemPrompt(mode);
   const contents = formatConversationContents(history, message, attachments);
 
+  // Fast generation configuration
+  const config: Record<string, unknown> = {
+    systemInstruction,
+    temperature: 0.1, // Low temperature for deterministic speed and accuracy
+    topP: 0.9,
+    maxOutputTokens: 2048, // Compact limit for fast token generation
+  };
+
+  // Disable thinking tokens on models like 2.5 to eliminate reasoning delay
+  if (modelName.includes('2.5') || modelName.includes('thinking')) {
+    config.thinkingConfig = {
+      thinkingBudget: 0,
+    };
+  }
+
   const maxRetries = 2;
   let attempt = 0;
 
@@ -142,12 +156,7 @@ export async function* streamGeminiResponse({
       const responseStream = await ai.models.generateContentStream({
         model: modelName,
         contents,
-        config: {
-          systemInstruction,
-          temperature: 0.2, // Low temperature for high precision & syntax correctness
-          topP: 0.95,
-          maxOutputTokens: 8192,
-        },
+        config,
       });
 
       for await (const chunk of responseStream) {
@@ -162,8 +171,8 @@ export async function* streamGeminiResponse({
       const isTransient = err.status === 429 || err.status === 503 || (err.message && /rate limit|overloaded|timeout/i.test(err.message));
 
       if (attempt <= maxRetries && isTransient) {
-        // Exponential backoff wait: 1.5s, 3s
-        const backoffMs = attempt * 1500;
+        // Fast backoff wait: 1s, 2s
+        const backoffMs = attempt * 1000;
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }

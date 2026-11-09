@@ -13,8 +13,8 @@ declare global {
 
 function resolveDbUrl(): string {
   // 1. If remote Turso / libSQL URL is provided, use it directly (ideal for Vercel)
-  if (process.env.TURSO_DATABASE_URL) {
-    return process.env.TURSO_DATABASE_URL;
+  if (process.env.TURSO_DATABASE_URL?.trim()) {
+    return process.env.TURSO_DATABASE_URL.trim();
   }
 
   // 2. If running on Vercel serverless without Turso, use /tmp (the only writable directory on Vercel)
@@ -40,7 +40,7 @@ export function getClient(): Client {
   }
 
   const url = resolveDbUrl();
-  const authToken = process.env.TURSO_AUTH_TOKEN;
+  const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
 
   const client = createClient({
     url,

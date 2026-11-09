@@ -92,6 +92,17 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`event: start\ndata: ${initData}\n\n`));
 
         let fullAssistantResponse = '';
+        let pingInterval: NodeJS.Timeout | null = setInterval(() => {
+          try {
+            // Keep connection alive across proxies, CDNs, and browsers during reasoning phases
+            controller.enqueue(encoder.encode(': ping\n\n'));
+          } catch {
+            if (pingInterval) {
+              clearInterval(pingInterval);
+              pingInterval = null;
+            }
+          }
+        }, 10000);
 
         try {
           const geminiStream = streamGeminiResponse({
@@ -149,6 +160,11 @@ export async function POST(request: NextRequest) {
           });
           controller.enqueue(encoder.encode(`event: error\ndata: ${errorData}\n\n`));
           controller.close();
+        } finally {
+          if (pingInterval) {
+            clearInterval(pingInterval);
+            pingInterval = null;
+          }
         }
       },
     });

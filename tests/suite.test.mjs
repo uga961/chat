@@ -178,10 +178,10 @@ test('6. Gemini Model Config and Multimodal Data Prep', (t) => {
 
   // Test configurable model
   delete process.env.GEMINI_MODEL;
-  assert.strictEqual(getGeminiModelName(), 'gemini-3.8-flash');
-
-  process.env.GEMINI_MODEL = 'gemini-3.5-flash';
   assert.strictEqual(getGeminiModelName(), 'gemini-3.5-flash');
+
+  process.env.GEMINI_MODEL = 'gemini-3.8-flash';
+  assert.strictEqual(getGeminiModelName(), 'gemini-3.8-flash');
 });
 
 test('7. Database Health Reporting', async (t) => {

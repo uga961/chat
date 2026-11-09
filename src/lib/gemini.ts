@@ -4,10 +4,11 @@ import { getSystemPrompt } from './prompts';
 
 /**
  * Returns the configured Gemini model name.
- * Defaults to 'gemini-3.8-flash' for top-tier reasoning, multimodal understanding, and complete technical answers.
+ * Defaults to 'gemini-3.5-flash' for the best balance of deep technical reasoning,
+ * complete/thorough answers, and fast 5-7s response times without stalling.
  */
 export function getGeminiModelName(): string {
-  return process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash';
+  return process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash';
 }
 
 /**

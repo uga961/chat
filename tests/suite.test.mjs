@@ -37,8 +37,10 @@ test('1. Response Modes and System Prompts', (t) => {
   assert.ok(detailedPrompt.includes('comprehensive, in-depth'));
 });
 
-test('2. Edge-compatible JWT Session Management', async (t) => {
-  process.env.SESSION_SECRET = 'a-very-secure-test-secret-at-least-32-chars-long!';
+test('2. Automatic Session Management (Without Manual SESSION_SECRET)', async (t) => {
+  // Test when SESSION_SECRET is unset - it automatically derives from APP_ACCESS_KEY
+  delete process.env.SESSION_SECRET;
+  process.env.APP_ACCESS_KEY = 'auto-derived-key-123';
 
   const token = await createSessionToken();
   assert.ok(typeof token === 'string' && token.length > 20);
@@ -61,56 +63,56 @@ test('3. Application Access Key and Timing-safe Authentication', (t) => {
   assert.strictEqual(verifyAccessKey(''), false);
 });
 
-test('4. Rate Limiting and Brute Force Protection', (t) => {
+test('4. Rate Limiting and Brute Force Protection', async (t) => {
   process.env.APP_ACCESS_KEY = 'valid-key';
   const testIp = '10.0.0.99';
 
-  resetRateLimit(testIp);
+  await resetRateLimit(testIp);
 
   // First 4 attempts should fail without blocking
   for (let i = 1; i <= 4; i++) {
-    const res = authenticateAttempt('bad-key', testIp);
+    const res = await authenticateAttempt('bad-key', testIp);
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.isBlocked, false);
   }
 
   // 5th failed attempt should trigger rate limiting block
-  const blockedRes = authenticateAttempt('bad-key', testIp);
+  const blockedRes = await authenticateAttempt('bad-key', testIp);
   assert.strictEqual(blockedRes.success, false);
   assert.strictEqual(blockedRes.isBlocked, true);
   assert.ok(blockedRes.remainingSeconds > 0);
 
   // Subsequent check should stay blocked
-  const check = checkRateLimit(testIp);
+  const check = await checkRateLimit(testIp);
   assert.strictEqual(check.isBlocked, true);
 
   // Clean up
-  resetRateLimit(testIp);
-  const afterReset = checkRateLimit(testIp);
+  await resetRateLimit(testIp);
+  const afterReset = await checkRateLimit(testIp);
   assert.strictEqual(afterReset.isBlocked, false);
 });
 
-test('5. SQLite Conversation and Message Persistence', (t) => {
+test('5. LibSQL / SQLite Conversation and Message Persistence', async (t) => {
   const testConvId = `conv-${Date.now()}`;
-  const conv = createConversation(testConvId, 'Test SQL Window Function', 'answer_only');
+  const conv = await createConversation(testConvId, 'Test SQL Window Function', 'answer_only');
   assert.strictEqual(conv.id, testConvId);
   assert.strictEqual(conv.title, 'Test SQL Window Function');
   assert.strictEqual(conv.mode, 'answer_only');
 
   // Verify fetch
-  const fetched = getConversation(testConvId);
+  const fetched = await getConversation(testConvId);
   assert.ok(fetched);
   assert.strictEqual(fetched.id, testConvId);
 
   // Update title & mode
-  updateConversationTitle(testConvId, 'Updated Title');
-  updateConversationMode(testConvId, 'short');
-  const updated = getConversation(testConvId);
-  assert.strictEqual(updated.title, 'Updated Title');
-  assert.strictEqual(updated.mode, 'short');
+  await updateConversationTitle(testConvId, 'Updated Title');
+  await updateConversationMode(testConvId, 'short');
+  const updated = await getConversation(testConvId);
+  assert.strictEqual(updated?.title, 'Updated Title');
+  assert.strictEqual(updated?.mode, 'short');
 
   // Add messages
-  const msg1 = saveMessage({
+  const msg1 = await saveMessage({
     id: `m1-${Date.now()}`,
     conversationId: testConvId,
     role: 'user',
@@ -118,7 +120,7 @@ test('5. SQLite Conversation and Message Persistence', (t) => {
   });
   assert.strictEqual(msg1.content, 'How do I write a running total in PostgreSQL?');
 
-  const msg2 = saveMessage({
+  const msg2 = await saveMessage({
     id: `m2-${Date.now()}`,
     conversationId: testConvId,
     role: 'assistant',
@@ -127,21 +129,21 @@ test('5. SQLite Conversation and Message Persistence', (t) => {
   assert.strictEqual(msg2.role, 'assistant');
 
   // Retrieve messages
-  const msgs = getMessages(testConvId);
+  const msgs = await getMessages(testConvId);
   assert.strictEqual(msgs.length, 2);
   assert.strictEqual(msgs[0].role, 'user');
   assert.strictEqual(msgs[1].role, 'assistant');
 
   // List conversations
-  const allConvs = listConversations();
+  const allConvs = await listConversations();
   const exists = allConvs.find((c) => c.id === testConvId);
   assert.ok(exists);
   assert.strictEqual(exists.messageCount, 2);
 
   // Delete conversation (cascade should delete messages too)
-  deleteConversation(testConvId);
-  assert.strictEqual(getConversation(testConvId), null);
-  assert.strictEqual(getMessages(testConvId).length, 0);
+  await deleteConversation(testConvId);
+  assert.strictEqual(await getConversation(testConvId), null);
+  assert.strictEqual((await getMessages(testConvId)).length, 0);
 });
 
 test('6. Gemini Model Config and Multimodal Data Prep', (t) => {
@@ -180,8 +182,8 @@ test('6. Gemini Model Config and Multimodal Data Prep', (t) => {
   assert.strictEqual(getGeminiModelName(), 'gemini-2.0-flash');
 });
 
-test('7. Database Health Reporting', (t) => {
-  const health = getDatabaseHealth();
+test('7. Database Health Reporting', async (t) => {
+  const health = await getDatabaseHealth();
   assert.strictEqual(health.status, 'ok');
   assert.ok(typeof health.conversationCount === 'number');
   assert.ok(typeof health.messageCount === 'number');

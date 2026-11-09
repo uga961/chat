@@ -3,7 +3,7 @@ import { getDatabaseHealth } from '@/lib/db';
 import { getGeminiModelName } from '@/lib/gemini';
 
 export async function GET() {
-  const dbHealth = getDatabaseHealth();
+  const dbHealth = await getDatabaseHealth();
   const model = getGeminiModelName();
   const uptime = Math.floor(process.uptime());
 
@@ -21,6 +21,8 @@ export async function GET() {
     configured: {
       geminiKeySet: hasApiKey,
       accessKeySet: hasAccessKey,
+      sessionSecretSet: Boolean(process.env.SESSION_SECRET),
+      tursoSet: Boolean(process.env.TURSO_DATABASE_URL),
     },
     database: dbHealth,
   });

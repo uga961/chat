@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     accessKey = (formData.get('accessKey') as string) || '';
   }
 
-  const result = authenticateAttempt(accessKey, clientIp);
+  const result = await authenticateAttempt(accessKey, clientIp);
 
   if (result.isBlocked) {
     return NextResponse.json(

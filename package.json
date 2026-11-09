@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@google/genai": "^3.0.0",
+    "@libsql/client": "^0.18.0",
     "@tailwindcss/typography": "^0.5.16",
-    "better-sqlite3": "^11.8.1",
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",
     "jose": "^5.9.6",
@@ -30,7 +30,6 @@
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/katex": "^0.16.7",
     "@types/node": "^20.17.24",
     "@types/react": "^19.0.10",

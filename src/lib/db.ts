@@ -1,77 +1,102 @@
-import Database from 'better-sqlite3';
+import { createClient, Client } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
 import { ChatMessage, Conversation, MessageAttachment, ResponseMode, Role } from './types';
 
-// Ensure data directory exists
-const DATA_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-const DB_PATH = path.join(DATA_DIR, 'chat.db');
-
-// Initialize database with singleton pattern for Next.js hot-reloading
+// Declare global client for hot reloading in development
 declare global {
   // eslint-disable-next-line no-var
-  var __chat_db__: Database.Database | undefined;
+  var __libsql_chat_client__: Client | undefined;
+  // eslint-disable-next-line no-var
+  var __libsql_init_promise__: Promise<void> | undefined;
 }
 
-function getDatabase(): Database.Database {
-  if (global.__chat_db__) {
-    return global.__chat_db__;
+function resolveDbUrl(): string {
+  // 1. If remote Turso / libSQL URL is provided, use it directly (ideal for Vercel)
+  if (process.env.TURSO_DATABASE_URL) {
+    return process.env.TURSO_DATABASE_URL;
   }
 
-  const db = new Database(DB_PATH);
-  
-  // Pragmas for performance and data integrity
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
+  // 2. If running on Vercel serverless without Turso, use /tmp (the only writable directory on Vercel)
+  if (process.env.VERCEL) {
+    return 'file:/tmp/chat.db';
+  }
 
-  // Schema creation
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      mode TEXT NOT NULL DEFAULT 'answer_only',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+  // 3. Local development or Docker: use ./data/chat.db
+  const dataDir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dataDir)) {
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch {
+      // Ignore if read-only
+    }
+  }
+  return `file:${path.join(dataDir, 'chat.db')}`;
+}
 
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      attachments TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    );
+export function getClient(): Client {
+  if (global.__libsql_chat_client__) {
+    return global.__libsql_chat_client__;
+  }
 
-    CREATE TABLE IF NOT EXISTS rate_limits (
-      ip TEXT PRIMARY KEY,
-      attempts INTEGER NOT NULL DEFAULT 1,
-      first_attempt_at INTEGER NOT NULL,
-      last_attempt_at INTEGER NOT NULL,
-      blocked_until INTEGER NOT NULL DEFAULT 0
-    );
+  const url = resolveDbUrl();
+  const authToken = process.env.TURSO_AUTH_TOKEN;
 
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at ASC);
-    CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
-  `);
+  const client = createClient({
+    url,
+    authToken,
+  });
 
   if (process.env.NODE_ENV !== 'production') {
-    global.__chat_db__ = db;
+    global.__libsql_chat_client__ = client;
   }
 
-  return db;
+  return client;
 }
 
-const db = getDatabase();
+const client = getClient();
 
-export function listConversations(): Conversation[] {
-  const stmt = db.prepare(`
+export async function initDb(): Promise<void> {
+  if (global.__libsql_init_promise__) {
+    return global.__libsql_init_promise__;
+  }
+
+  const initAction = async () => {
+    await client.batch([
+      `CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'answer_only',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        attachments TEXT,
+        created_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS rate_limits (
+        ip TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 1,
+        first_attempt_at INTEGER NOT NULL,
+        last_attempt_at INTEGER NOT NULL,
+        blocked_until INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at ASC)`,
+      `CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC)`,
+    ]);
+  };
+
+  global.__libsql_init_promise__ = initAction();
+  return global.__libsql_init_promise__;
+}
+
+export async function listConversations(): Promise<Conversation[]> {
+  await initDb();
+  const rs = await client.execute(`
     SELECT c.id, c.title, c.mode, c.created_at as createdAt, c.updated_at as updatedAt,
            COUNT(m.id) as messageCount
     FROM conversations c
@@ -79,50 +104,50 @@ export function listConversations(): Conversation[] {
     GROUP BY c.id
     ORDER BY c.updated_at DESC
   `);
-  
-  const rows = stmt.all() as Array<{
-    id: string;
-    title: string;
-    mode: ResponseMode;
-    createdAt: number;
-    updatedAt: number;
-    messageCount: number;
-  }>;
 
-  return rows.map(r => ({
-    id: r.id,
-    title: r.title,
-    mode: r.mode,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-    messageCount: Number(r.messageCount),
+  return rs.rows.map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    mode: String(r.mode) as ResponseMode,
+    createdAt: Number(r.createdAt),
+    updatedAt: Number(r.updatedAt),
+    messageCount: Number(r.messageCount || 0),
   }));
 }
 
-export function getConversation(id: string): Conversation | null {
-  const stmt = db.prepare(`
-    SELECT id, title, mode, created_at as createdAt, updated_at as updatedAt
-    FROM conversations
-    WHERE id = ?
-  `);
-  const row = stmt.get(id) as {
-    id: string;
-    title: string;
-    mode: ResponseMode;
-    createdAt: number;
-    updatedAt: number;
-  } | undefined;
+export async function getConversation(id: string): Promise<Conversation | null> {
+  await initDb();
+  const rs = await client.execute({
+    sql: `SELECT id, title, mode, created_at as createdAt, updated_at as updatedAt
+          FROM conversations
+          WHERE id = ?`,
+    args: [id],
+  });
 
-  return row || null;
+  if (rs.rows.length === 0) return null;
+  const r = rs.rows[0];
+
+  return {
+    id: String(r.id),
+    title: String(r.title),
+    mode: String(r.mode) as ResponseMode,
+    createdAt: Number(r.createdAt),
+    updatedAt: Number(r.updatedAt),
+  };
 }
 
-export function createConversation(id: string, title: string, mode: ResponseMode = 'answer_only'): Conversation {
+export async function createConversation(
+  id: string,
+  title: string,
+  mode: ResponseMode = 'answer_only'
+): Promise<Conversation> {
+  await initDb();
   const now = Date.now();
-  const stmt = db.prepare(`
-    INSERT INTO conversations (id, title, mode, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  stmt.run(id, title, mode, now, now);
+  await client.execute({
+    sql: `INSERT INTO conversations (id, title, mode, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [id, title, mode, now, now],
+  });
 
   return {
     id,
@@ -134,85 +159,80 @@ export function createConversation(id: string, title: string, mode: ResponseMode
   };
 }
 
-export function updateConversationTitle(id: string, title: string): void {
-  const stmt = db.prepare(`
-    UPDATE conversations
-    SET title = ?, updated_at = ?
-    WHERE id = ?
-  `);
-  stmt.run(title, Date.now(), id);
+export async function updateConversationTitle(id: string, title: string): Promise<void> {
+  await initDb();
+  await client.execute({
+    sql: `UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`,
+    args: [title, Date.now(), id],
+  });
 }
 
-export function updateConversationMode(id: string, mode: ResponseMode): void {
-  const stmt = db.prepare(`
-    UPDATE conversations
-    SET mode = ?, updated_at = ?
-    WHERE id = ?
-  `);
-  stmt.run(mode, Date.now(), id);
+export async function updateConversationMode(id: string, mode: ResponseMode): Promise<void> {
+  await initDb();
+  await client.execute({
+    sql: `UPDATE conversations SET mode = ?, updated_at = ? WHERE id = ?`,
+    args: [mode, Date.now(), id],
+  });
 }
 
-export function deleteConversation(id: string): void {
-  const stmt = db.prepare(`DELETE FROM conversations WHERE id = ?`);
-  stmt.run(id);
+export async function deleteConversation(id: string): Promise<void> {
+  await initDb();
+  await client.batch([
+    {
+      sql: `DELETE FROM messages WHERE conversation_id = ?`,
+      args: [id],
+    },
+    {
+      sql: `DELETE FROM conversations WHERE id = ?`,
+      args: [id],
+    },
+  ]);
 }
 
-export function getMessages(conversationId: string, limit = 50): ChatMessage[] {
-  const stmt = db.prepare(`
-    SELECT id, conversation_id as conversationId, role, content, attachments, created_at as createdAt
-    FROM messages
-    WHERE conversation_id = ?
-    ORDER BY created_at ASC
-    LIMIT ?
-  `);
+export async function getMessages(conversationId: string, limit = 50): Promise<ChatMessage[]> {
+  await initDb();
+  const rs = await client.execute({
+    sql: `SELECT id, conversation_id as conversationId, role, content, attachments, created_at as createdAt
+          FROM messages
+          WHERE conversation_id = ?
+          ORDER BY created_at ASC
+          LIMIT ?`,
+    args: [conversationId, limit],
+  });
 
-  const rows = stmt.all(conversationId, limit) as Array<{
-    id: string;
-    conversationId: string;
-    role: Role;
-    content: string;
-    attachments: string | null;
-    createdAt: number;
-  }>;
-
-  return rows.map(r => ({
-    id: r.id,
-    conversationId: r.conversationId,
-    role: r.role,
-    content: r.content,
-    attachments: r.attachments ? (JSON.parse(r.attachments) as MessageAttachment[]) : undefined,
-    createdAt: r.createdAt,
+  return rs.rows.map((r) => ({
+    id: String(r.id),
+    conversationId: String(r.conversationId),
+    role: String(r.role) as Role,
+    content: String(r.content),
+    attachments: r.attachments ? (JSON.parse(String(r.attachments)) as MessageAttachment[]) : undefined,
+    createdAt: Number(r.createdAt),
   }));
 }
 
-export function saveMessage(msg: {
+export async function saveMessage(msg: {
   id: string;
   conversationId: string;
   role: Role;
   content: string;
   attachments?: MessageAttachment[];
   createdAt?: number;
-}): ChatMessage {
+}): Promise<ChatMessage> {
+  await initDb();
   const createdAt = msg.createdAt || Date.now();
   const attachmentsJson = msg.attachments && msg.attachments.length > 0 ? JSON.stringify(msg.attachments) : null;
 
-  const insertMsg = db.prepare(`
-    INSERT INTO messages (id, conversation_id, role, content, attachments, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const updateConv = db.prepare(`
-    UPDATE conversations
-    SET updated_at = ?
-    WHERE id = ?
-  `);
-
-  const tx = db.transaction(() => {
-    insertMsg.run(msg.id, msg.conversationId, msg.role, msg.content, attachmentsJson, createdAt);
-    updateConv.run(createdAt, msg.conversationId);
-  });
-
-  tx();
+  await client.batch([
+    {
+      sql: `INSERT INTO messages (id, conversation_id, role, content, attachments, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [msg.id, msg.conversationId, msg.role, msg.content, attachmentsJson, createdAt],
+    },
+    {
+      sql: `UPDATE conversations SET updated_at = ? WHERE id = ?`,
+      args: [createdAt, msg.conversationId],
+    },
+  ]);
 
   return {
     id: msg.id,
@@ -224,64 +244,66 @@ export function saveMessage(msg: {
   };
 }
 
-// Rate Limiting helpers for authentication
+// Rate Limiting helpers
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const BLOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes block
 
-export function checkRateLimit(ip: string): { isBlocked: boolean; remainingSeconds: number } {
-  const now = Date.now();
-  const stmt = db.prepare(`SELECT * FROM rate_limits WHERE ip = ?`);
-  const record = stmt.get(ip) as {
-    attempts: number;
-    first_attempt_at: number;
-    last_attempt_at: number;
-    blocked_until: number;
-  } | undefined;
+export async function checkRateLimit(ip: string): Promise<{ isBlocked: boolean; remainingSeconds: number }> {
+  await initDb();
+  const rs = await client.execute({
+    sql: `SELECT * FROM rate_limits WHERE ip = ?`,
+    args: [ip],
+  });
 
-  if (!record) {
+  if (rs.rows.length === 0) {
     return { isBlocked: false, remainingSeconds: 0 };
   }
 
-  if (record.blocked_until > now) {
-    const remaining = Math.ceil((record.blocked_until - now) / 1000);
+  const record = rs.rows[0];
+  const now = Date.now();
+  const blockedUntil = Number(record.blocked_until);
+
+  if (blockedUntil > now) {
+    const remaining = Math.ceil((blockedUntil - now) / 1000);
     return { isBlocked: true, remainingSeconds: remaining };
   }
 
   return { isBlocked: false, remainingSeconds: 0 };
 }
 
-export function recordFailedAttempt(ip: string): { isBlocked: boolean; remainingSeconds: number } {
+export async function recordFailedAttempt(ip: string): Promise<{ isBlocked: boolean; remainingSeconds: number }> {
+  await initDb();
   const now = Date.now();
-  const getStmt = db.prepare(`SELECT * FROM rate_limits WHERE ip = ?`);
-  const record = getStmt.get(ip) as {
-    attempts: number;
-    first_attempt_at: number;
-    last_attempt_at: number;
-    blocked_until: number;
-  } | undefined;
+  const rs = await client.execute({
+    sql: `SELECT * FROM rate_limits WHERE ip = ?`,
+    args: [ip],
+  });
 
-  if (!record) {
-    const insertStmt = db.prepare(`
-      INSERT INTO rate_limits (ip, attempts, first_attempt_at, last_attempt_at, blocked_until)
-      VALUES (?, 1, ?, ?, 0)
-    `);
-    insertStmt.run(ip, now, now);
+  if (rs.rows.length === 0) {
+    await client.execute({
+      sql: `INSERT INTO rate_limits (ip, attempts, first_attempt_at, last_attempt_at, blocked_until)
+            VALUES (?, 1, ?, ?, 0)`,
+      args: [ip, now, now],
+    });
     return { isBlocked: false, remainingSeconds: 0 };
   }
 
-  // If outside sliding window, reset window
-  if (now - record.first_attempt_at > WINDOW_MS) {
-    const resetStmt = db.prepare(`
-      UPDATE rate_limits
-      SET attempts = 1, first_attempt_at = ?, last_attempt_at = ?, blocked_until = 0
-      WHERE ip = ?
-    `);
-    resetStmt.run(now, now, ip);
+  const record = rs.rows[0];
+  const firstAttemptAt = Number(record.first_attempt_at);
+  const attempts = Number(record.attempts);
+
+  if (now - firstAttemptAt > WINDOW_MS) {
+    await client.execute({
+      sql: `UPDATE rate_limits
+            SET attempts = 1, first_attempt_at = ?, last_attempt_at = ?, blocked_until = 0
+            WHERE ip = ?`,
+      args: [now, now, ip],
+    });
     return { isBlocked: false, remainingSeconds: 0 };
   }
 
-  const newAttempts = record.attempts + 1;
+  const newAttempts = attempts + 1;
   let blockedUntil = 0;
   let isBlocked = false;
   let remainingSeconds = 0;
@@ -292,29 +314,33 @@ export function recordFailedAttempt(ip: string): { isBlocked: boolean; remaining
     remainingSeconds = Math.ceil(BLOCK_DURATION_MS / 1000);
   }
 
-  const updateStmt = db.prepare(`
-    UPDATE rate_limits
-    SET attempts = ?, last_attempt_at = ?, blocked_until = ?
-    WHERE ip = ?
-  `);
-  updateStmt.run(newAttempts, now, blockedUntil, ip);
+  await client.execute({
+    sql: `UPDATE rate_limits
+          SET attempts = ?, last_attempt_at = ?, blocked_until = ?
+          WHERE ip = ?`,
+    args: [newAttempts, now, blockedUntil, ip],
+  });
 
   return { isBlocked, remainingSeconds };
 }
 
-export function resetRateLimit(ip: string): void {
-  const stmt = db.prepare(`DELETE FROM rate_limits WHERE ip = ?`);
-  stmt.run(ip);
+export async function resetRateLimit(ip: string): Promise<void> {
+  await initDb();
+  await client.execute({
+    sql: `DELETE FROM rate_limits WHERE ip = ?`,
+    args: [ip],
+  });
 }
 
-export function getDatabaseHealth(): { status: 'ok' | 'error'; messageCount: number; conversationCount: number } {
+export async function getDatabaseHealth(): Promise<{ status: 'ok' | 'error'; messageCount: number; conversationCount: number }> {
   try {
-    const convCount = (db.prepare('SELECT COUNT(*) as count FROM conversations').get() as { count: number }).count;
-    const msgCount = (db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number }).count;
+    await initDb();
+    const convRs = await client.execute('SELECT COUNT(*) as count FROM conversations');
+    const msgRs = await client.execute('SELECT COUNT(*) as count FROM messages');
     return {
       status: 'ok',
-      conversationCount: Number(convCount),
-      messageCount: Number(msgCount),
+      conversationCount: Number(convRs.rows[0]?.count || 0),
+      messageCount: Number(msgRs.rows[0]?.count || 0),
     };
   } catch {
     return {

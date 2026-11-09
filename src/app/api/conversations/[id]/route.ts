@@ -8,12 +8,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const conversation = getConversation(id);
+    const conversation = await getConversation(id);
     if (!conversation) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const messages = getMessages(id, 100);
+    const messages = await getMessages(id, 100);
     return NextResponse.json({ conversation, messages });
   } catch (error) {
     console.error('[API/CONVERSATIONS/:ID] Get error:', error);
@@ -27,20 +27,20 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const conversation = getConversation(id);
+    const conversation = await getConversation(id);
     if (!conversation) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
     const body = await request.json();
     if (body.title && typeof body.title === 'string') {
-      updateConversationTitle(id, body.title.trim().slice(0, 100));
+      await updateConversationTitle(id, body.title.trim().slice(0, 100));
     }
     if (body.mode && ['answer_only', 'short', 'detailed'].includes(body.mode)) {
-      updateConversationMode(id, body.mode as ResponseMode);
+      await updateConversationMode(id, body.mode as ResponseMode);
     }
 
-    const updated = getConversation(id);
+    const updated = await getConversation(id);
     return NextResponse.json({ conversation: updated });
   } catch (error) {
     console.error('[API/CONVERSATIONS/:ID] Update error:', error);
@@ -54,7 +54,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    deleteConversation(id);
+    await deleteConversation(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[API/CONVERSATIONS/:ID] Delete error:', error);

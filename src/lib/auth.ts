@@ -45,12 +45,12 @@ export async function isAuthenticated(): Promise<boolean> {
 /**
  * Attempts authentication with rate limiting and logging.
  */
-export function authenticateAttempt(
+export async function authenticateAttempt(
   key: string,
   ip: string
-): { success: boolean; isBlocked?: boolean; remainingSeconds?: number } {
+): Promise<{ success: boolean; isBlocked?: boolean; remainingSeconds?: number }> {
   // Check if IP is currently blocked
-  const rateLimitStatus = checkRateLimit(ip);
+  const rateLimitStatus = await checkRateLimit(ip);
   if (rateLimitStatus.isBlocked) {
     return {
       success: false,
@@ -62,10 +62,10 @@ export function authenticateAttempt(
   const isValid = verifyAccessKey(key);
 
   if (isValid) {
-    resetRateLimit(ip);
+    await resetRateLimit(ip);
     return { success: true };
   } else {
-    const failureStatus = recordFailedAttempt(ip);
+    const failureStatus = await recordFailedAttempt(ip);
     return {
       success: false,
       isBlocked: failureStatus.isBlocked,

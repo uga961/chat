@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 export async function GET() {
   try {
-    const conversations = listConversations();
+    const conversations = await listConversations();
     return NextResponse.json({ conversations });
   } catch (error) {
     console.error('[API/CONVERSATIONS] List error:', error);
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       ? body.mode
       : 'answer_only') as ResponseMode;
 
-    const conversation = createConversation(id, title, mode);
+    const conversation = await createConversation(id, title, mode);
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (error) {
     console.error('[API/CONVERSATIONS] Create error:', error);

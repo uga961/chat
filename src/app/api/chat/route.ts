@@ -45,25 +45,25 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify or initialize conversation
-    let conversation = conversationId ? getConversation(conversationId) : null;
+    let conversation = conversationId ? await getConversation(conversationId) : null;
     let isNewConversation = false;
 
     if (!conversation) {
       conversationId = crypto.randomUUID();
       const title = generateTitleFromPrompt(message, attachments.length > 0);
-      conversation = createConversation(conversationId, title, mode);
+      conversation = await createConversation(conversationId, title, mode);
       isNewConversation = true;
     } else if (conversation.title === 'New Technical Chat' && message.trim()) {
       // Auto-update default placeholder title
-      updateConversationTitle(conversationId, generateTitleFromPrompt(message, attachments.length > 0));
+      await updateConversationTitle(conversationId, generateTitleFromPrompt(message, attachments.length > 0));
     }
 
     // Retrieve prior conversation history for context
-    const history = getMessages(conversationId, 10);
+    const history = await getMessages(conversationId, 10);
 
     // Persist user message to SQLite
     const userMessageId = crypto.randomUUID();
-    const userMessage = saveMessage({
+    const userMessage = await saveMessage({
       id: userMessageId,
       conversationId,
       role: 'user',
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Save assistant message to SQLite
-          saveMessage({
+          await saveMessage({
             id: assistantMessageId,
             conversationId,
             role: 'assistant',
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
 
           // If partial response was generated, persist what we have
           if (fullAssistantResponse) {
-            saveMessage({
+            await saveMessage({
               id: assistantMessageId,
               conversationId,
               role: 'assistant',

@@ -1,0 +1,17 @@
+{
+  "name": "Chat AI Technical Assistant",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Chat Application",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    }
+  },
+  "containerEnv": {
+    "HOSTNAME": "0.0.0.0",
+    "PORT": "3000"
+  },
+  "postCreateCommand": "npm install"
+}

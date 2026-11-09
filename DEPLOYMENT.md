@@ -26,7 +26,7 @@ Under the **Environment Variables** section before deploying, add the following 
 | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | *(Your Google AI Studio API Key)* | Required. Never exposed to browser. |
 | `APP_ACCESS_KEY` | `admin123` *(or your custom passphrase)* | Required to unlock the chat on the website. |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Optional (defaults to `gemini-2.5-flash`). |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | Optional (defaults to `gemini-3.5-flash`). |
 | `SESSION_SECRET` | *(Leave empty)* | **Optional**. The app automatically derives a 256-bit secure secret from `APP_ACCESS_KEY`. |
 | `TURSO_DATABASE_URL` | *(Optional - see below)* | For permanent conversation history on serverless. |
 | `TURSO_AUTH_TOKEN` | *(Optional - see below)* | Paired with `TURSO_DATABASE_URL`. |
@@ -53,7 +53,55 @@ Click the **"Deploy"** button. Vercel will build the project in ~1 minute.
 
 ---
 
-## 🐳 2. Alternative: Self-Hosted Docker Compose
+## 🌐 2. Whitelisted GitHub Domain: Running via GitHub Codespaces (`*.app.github.dev`)
+
+If your company network, exam proctoring software, or corporate proxy blocks unknown/newly registered domains like `*.ugandhar.in` or `*.vercel.app`, **GitHub Codespaces** provides an official GitHub URL (`https://<codespace-id>-3000.app.github.dev`) that is automatically recognized, trusted, and whitelisted by corporate firewalls.
+
+### Why GitHub Pages (`*.github.io`) Cannot Be Used:
+- **GitHub Pages is strictly static file hosting** (HTML/JS/CSS).
+- It cannot run Node.js backend servers, Server-Sent Events (SSE) streaming, or private server-side secrets.
+- Putting an AI backend on GitHub Pages would force you to bundle your Gemini API Key into public frontend JS where any user or network proxy can intercept it.
+- **GitHub Codespaces**, however, runs the full secure Next.js server inside GitHub's infrastructure and gives you a genuine `*.github.dev` domain with all backend capabilities, SQLite persistence, and complete security intact.
+
+### Step 1: Add Codespace Secrets to your GitHub Repo
+1. Open your repository on GitHub: `https://github.com/uga961/chat`.
+2. Go to **Settings** > **Secrets and variables** > **Codespaces**.
+3. Click **New repository secret** and add:
+   - `GEMINI_API_KEY`: *(Your Google AI Studio API Key)*
+   - `APP_ACCESS_KEY`: `admin123` *(or your custom unlock passphrase)*
+   - `GEMINI_MODEL`: `gemini-3.5-flash`
+
+### Step 2: Launch GitHub Codespace
+1. On your repository page, click the green **<> Code** button.
+2. Select the **Codespaces** tab.
+3. Click **Create codespace on main**.
+4. GitHub will build the container automatically using the included `.devcontainer`.
+
+### Step 3: Run the Application
+In the Codespace terminal:
+```bash
+npm run build && npm start
+```
+*(Or for fast startup: `npm run dev`)*
+
+### Step 4: Make Port 3000 Public to Get your GitHub URL
+1. In the bottom panel of VS Code in Codespaces, click the **Ports** tab.
+2. You will see port `3000` (`Chat Application`).
+3. Right-click port `3000` > **Port Visibility** > select **Public**.
+4. Click the copy icon next to the **Forwarded Address** (or click the globe icon to open it).
+5. The URL will look like:
+   `https://<codespace-unique-name>-3000.app.github.dev`
+6. This URL can now be opened directly in any browser on the company network! It is protected by your `APP_ACCESS_KEY` lock screen.
+
+> **Tip for Exams (Preventing Idle Timeout)**:
+> By default, Codespaces pauses after 30 minutes of idle time. To prevent it from stopping during an exam:
+> 1. Go to [https://github.com/settings/codespaces](https://github.com/settings/codespaces).
+> 2. Under **Default idle timeout**, change it to **120 minutes (2 hours)** or **240 minutes (4 hours)**.
+> 3. Keep the Codespace browser tab open in the background.
+
+---
+
+## 🐳 3. Alternative: Self-Hosted Docker Compose
 
 If you prefer self-hosting with local file SQLite on your own server or VPS:
 

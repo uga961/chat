@@ -18,13 +18,13 @@ Inspired by the clean simplicity of ChatGPT, but tuned for deterministic enginee
   - `Answer Only` *(Default)*: Returns strictly the solution, formula, query, or option letter. Zero conversational fluff.
   - `Short`: Direct answer followed by 1–3 concise sentences explaining the technical reasoning or root cause.
   - `Detailed`: Full breakdown, code walkthrough, and step-by-step trace.
-- **Google Gemini Integration**: Powered by `@google/genai` with streaming responses (SSE), configurable models (default `gemini-2.5-flash`), temperature tuning for syntax precision, and exponential backoff retry.
+- **Google Gemini Integration**: Powered by `@google/genai` with streaming responses (SSE), configurable models (default `gemini-3.5-flash`), temperature tuning for syntax precision, and exponential backoff retry.
 - **Private & Secure**:
   - Server-side only Gemini API key (never transmitted to browser or client bundles).
   - Minimal access-key gateway with rate limiting against brute force attempts.
   - **Incorrect access key immediately redirects to `https://ugandhar.in`**.
   - Encrypted, HTTP-only, SameSite JWT session cookies.
-- **Persistent Conversation Memory**: Local SQLite database with Write-Ahead Logging (WAL mode) for fast message retention, conversation management, and context awareness.
+- **Persistent Conversation Memory**: LibSQL / SQLite database supporting local files, `/tmp/chat.db`, or Turso cloud for zero-maintenance message retention, conversation management, and context awareness.
 - **Modern Minimalist UI**:
   - Built with Next.js 15, React 19, and Tailwind CSS.
   - Syntax-highlighted code blocks with language labels and one-click copy buttons.
@@ -41,7 +41,7 @@ Inspired by the clean simplicity of ChatGPT, but tuned for deterministic enginee
 | **Framework** | Next.js 15 (App Router, Server Actions, Standalone Build) |
 | **Frontend** | React 19, Tailwind CSS, Lucide Icons |
 | **AI SDK** | `@google/genai` (Official Google Gen AI SDK) |
-| **Database** | SQLite via `better-sqlite3` (WAL mode enabled) |
+| **Database** | LibSQL / SQLite via `@libsql/client` (Local WAL & Cloud Turso support) |
 | **Authentication** | Edge-compatible HMAC / JWT (`jose`), Timing-safe comparisons |
 | **Markdown & Code** | `react-markdown`, `remark-gfm`, `rehype-highlight`, `katex` |
 | **Deployment** | Docker, Docker Compose, Nginx, Systemd |
